@@ -91,10 +91,14 @@ def sos_event():
 def get_data():
     try:
         current_body, _ = firebase_request("/current", "GET")
-        current = json.loads(current_body) if current_body != "null" else {}
+        current = json.loads(current_body)
+        if current is None:
+            current = {}
 
         history_body, _ = firebase_request("/history", "GET")
-        history_data = json.loads(history_body) if history_body != "null" else {}
+        history_data = json.loads(history_body)
+        if history_data is None:
+            history_data = {}
 
         # Calcul de la distance totale et stats
         distance_km = 0.0
