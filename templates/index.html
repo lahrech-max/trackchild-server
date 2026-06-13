@@ -11,7 +11,8 @@
   .info-panel {
     position: absolute; top: 10px; left: 10px; z-index: 1000;
     background: white; padding: 16px; border-radius: 12px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.15); min-width: 220px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.15); min-width: 240px;
+    max-height: 90vh; overflow-y: auto;
   }
   .info-panel h2 { font-size: 16px; margin-bottom: 8px; color: #1a1a1a; }
   .info-row { display: flex; justify-content: space-between; margin: 4px 0; font-size: 14px; color: #555; }
@@ -23,6 +24,15 @@
     background: #ef4444; color: white; padding: 10px; border-radius: 8px;
     text-align: center; font-weight: bold; margin-top: 8px; display: none;
   }
+  .section-title { font-size: 13px; font-weight: bold; color: #888; margin: 12px 0 4px; text-transform: uppercase; }
+  .battery-bar { width: 100%; height: 10px; background: #e5e7eb; border-radius: 5px; overflow: hidden; margin-top: 4px; }
+  .battery-fill { height: 100%; background: #22c55e; transition: width 0.3s; }
+  .battery-fill.low { background: #ef4444; }
+  .reset-btn {
+    width: 100%; margin-top: 12px; padding: 8px; border: none; border-radius: 8px;
+    background: #3b82f6; color: white; font-weight: bold; cursor: pointer;
+  }
+  .reset-btn:hover { background: #2563eb; }
 </style>
 </head>
 <body>
@@ -31,10 +41,25 @@
   <div class="info-row"><span>Statut</span><span><span class="status online" id="statusDot"></span><b id="statusText">En ligne</b></span></div>
   <div class="info-row"><span>Latitude</span><b id="lat">--</b></div>
   <div class="info-row"><span>Longitude</span><b id="lng">--</b></div>
-  <div class="info-row"><span>Vitesse</span><b id="speed">--</b></div>
   <div class="info-row"><span>Satellites</span><b id="sats">--</b></div>
   <div class="info-row"><span>Mise à jour</span><b id="updated">--</b></div>
   <div class="sos-banner" id="sosBanner">🚨 ALERTE SOS ACTIVE</div>
+
+  <div class="section-title">Vitesse</div>
+  <div class="info-row"><span>Actuelle</span><b id="speed">--</b></div>
+  <div class="info-row"><span>Maximale (24h)</span><b id="maxSpeed">--</b></div>
+
+  <div class="section-title">Trajet</div>
+  <div class="info-row"><span>Distance parcourue</span><b id="distance">--</b></div>
+
+  <div class="section-title">Batterie tracker</div>
+  <div class="info-row"><span>Niveau</span><b id="batteryText">--</b></div>
+  <div class="battery-bar"><div class="battery-fill" id="batteryFill" style="width:0%"></div></div>
+
+  <div class="section-title">Historique SOS</div>
+  <div id="sosHistory" style="font-size:13px; color:#555;">Aucune alerte</div>
+
+  <button class="reset-btn" onclick="resetTrack()">🔄 Réinitialiser le trajet</button>
 </div>
 <div id="map"></div>
 
@@ -48,6 +73,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 let marker = L.marker([34.685, 3.266]).addTo(map);
+let trackLine = L.polyline([], {color: '#3b82f6', weight: 4}).addTo(map);
 
 async function updateData() {
   try {
@@ -64,6 +90,8 @@ async function updateData() {
       document.getElementById('lng').textContent = lng.toFixed(6);
       document.getElementById('speed').textContent = (data.speed || 0) + ' km/h';
       document.getElementById('sats').textContent = data.satellites || '--';
+      document.getElementById('maxSpeed').textContent = (data.max_speed || 0) + ' km/h';
+      document.getElementById('distance').textContent = (data.distance_km || 0) + ' km';
 
       const updated = new Date(parseInt(data.timestamp) || Date.now());
       document.getElementById('updated').textContent = updated.toLocaleTimeString('fr-FR');
@@ -71,11 +99,29 @@ async function updateData() {
       document.getElementById('statusDot').className = 'status online';
       document.getElementById('statusText').textContent = 'En ligne';
 
+      // Batterie
+      const batt = data.battery !== undefined ? data.battery : null;
+      if (batt !== null) {
+        document.getElementById('batteryText').textContent = batt + ' %';
+        const fill = document.getElementById('batteryFill');
+        fill.style.width = batt + '%';
+        fill.className = batt < 20 ? 'battery-fill low' : 'battery-fill';
+      } else {
+        document.getElementById('batteryText').textContent = 'N/A';
+      }
+
+      // SOS
       const sosBanner = document.getElementById('sosBanner');
       if (data.sos === true || data.sos === 'true') {
         sosBanner.style.display = 'block';
       } else {
         sosBanner.style.display = 'none';
+      }
+
+      // Tracé du trajet
+      if (data.track_points && data.track_points.length > 0) {
+        const latlngs = data.track_points.map(p => [p.lat, p.lng]);
+        trackLine.setLatLngs(latlngs);
       }
     }
   } catch (e) {
@@ -84,8 +130,42 @@ async function updateData() {
   }
 }
 
+async function updateSOSHistory() {
+  try {
+    const res = await fetch('/sos_event');
+    const data = await res.json();
+    const container = document.getElementById('sosHistory');
+
+    if (data && Object.keys(data).length > 0) {
+      const events = Object.values(data).sort((a,b) => b.timestamp - a.timestamp).slice(0, 5);
+      container.innerHTML = events.map(e => {
+        const d = new Date(e.timestamp);
+        return `<div style="margin:4px 0; padding:4px; background:#fef2f2; border-radius:4px;">
+          🚨 ${d.toLocaleString('fr-FR')}<br>
+          <a href="http://maps.google.com/?q=${e.latitude},${e.longitude}" target="_blank">Voir position</a>
+        </div>`;
+      }).join('');
+    } else {
+      container.textContent = 'Aucune alerte';
+    }
+  } catch (e) {}
+}
+
+async function resetTrack() {
+  if (!confirm("Réinitialiser le trajet et la distance parcourue ?")) return;
+  try {
+    await fetch('/history/clear', { method: 'POST' });
+    trackLine.setLatLngs([]);
+    alert("Trajet réinitialisé !");
+  } catch (e) {
+    alert("Erreur lors de la réinitialisation");
+  }
+}
+
 updateData();
+updateSOSHistory();
 setInterval(updateData, 5000);
+setInterval(updateSOSHistory, 30000);
 </script>
 </body>
 </html>
