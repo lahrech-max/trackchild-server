@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Track Child - Suivi en direct</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, Arial, sans-serif; background: #f0f2f5; }
+  #map { height: 100vh; width: 100%; }
+  .info-panel {
+    position: absolute; top: 10px; left: 10px; z-index: 1000;
+    background: white; padding: 16px; border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.15); min-width: 220px;
+  }
+  .info-panel h2 { font-size: 16px; margin-bottom: 8px; color: #1a1a1a; }
+  .info-row { display: flex; justify-content: space-between; margin: 4px 0; font-size: 14px; color: #555; }
+  .info-row b { color: #1a1a1a; }
+  .status { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+  .online { background: #22c55e; }
+  .offline { background: #ef4444; }
+  .sos-banner {
+    background: #ef4444; color: white; padding: 10px; border-radius: 8px;
+    text-align: center; font-weight: bold; margin-top: 8px; display: none;
+  }
+</style>
+</head>
+<body>
+<div class="info-panel">
+  <h2>📍 Track Child System</h2>
+  <div class="info-row"><span>Statut</span><span><span class="status online" id="statusDot"></span><b id="statusText">En ligne</b></span></div>
+  <div class="info-row"><span>Latitude</span><b id="lat">--</b></div>
+  <div class="info-row"><span>Longitude</span><b id="lng">--</b></div>
+  <div class="info-row"><span>Vitesse</span><b id="speed">--</b></div>
+  <div class="info-row"><span>Satellites</span><b id="sats">--</b></div>
+  <div class="info-row"><span>Mise à jour</span><b id="updated">--</b></div>
+  <div class="sos-banner" id="sosBanner">🚨 ALERTE SOS ACTIVE</div>
+</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+<script>
+let map = L.map('map').setView([34.685, 3.266], 16);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap'
+}).addTo(map);
+
+let marker = L.marker([34.685, 3.266]).addTo(map);
+
+async function updateData() {
+  try {
+    const res = await fetch('/data');
+    const data = await res.json();
+
+    if (data.latitude && data.longitude) {
+      const lat = data.latitude;
+      const lng = data.longitude;
+      marker.setLatLng([lat, lng]);
+      map.setView([lat, lng], map.getZoom());
+
+      document.getElementById('lat').textContent = lat.toFixed(6);
+      document.getElementById('lng').textContent = lng.toFixed(6);
+      document.getElementById('speed').textContent = (data.speed || 0) + ' km/h';
+      document.getElementById('sats').textContent = data.satellites || '--';
+
+      const updated = new Date(parseInt(data.timestamp) || Date.now());
+      document.getElementById('updated').textContent = updated.toLocaleTimeString('fr-FR');
+
+      document.getElementById('statusDot').className = 'status online';
+      document.getElementById('statusText').textContent = 'En ligne';
+
+      const sosBanner = document.getElementById('sosBanner');
+      if (data.sos === true || data.sos === 'true') {
+        sosBanner.style.display = 'block';
+      } else {
+        sosBanner.style.display = 'none';
+      }
+    }
+  } catch (e) {
+    document.getElementById('statusDot').className = 'status offline';
+    document.getElementById('statusText').textContent = 'Hors ligne';
+  }
+}
+
+updateData();
+setInterval(updateData, 5000);
+</script>
+</body>
+</html>
