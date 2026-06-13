@@ -1,11 +1,11 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import urllib.request
 import json
 import os
 
 app = Flask(__name__)
 
-FIREBASE_URL = "https://trackchildsystem-default-rtdb.europe-west1.firebasedatabase.app/trackchild/device1.json"
+FIREBASE_BASE = "https://trackchildsystem-default-rtdb.europe-west1.firebasedatabase.app/trackchild/device1"
 
 @app.route('/update', methods=['POST'])
 def update():
@@ -16,7 +16,7 @@ def update():
 
         payload = json.dumps(data).encode('utf-8')
         req = urllib.request.Request(
-            FIREBASE_URL,
+            FIREBASE_BASE + ".json",
             data=payload,
             method='PATCH',
             headers={'Content-Type': 'application/json'}
@@ -30,16 +30,26 @@ def update():
 @app.route('/sos', methods=['GET'])
 def get_sos():
     try:
-        url = "https://trackchildsystem-default-rtdb.europe-west1.firebasedatabase.app/trackchild/device1/sos.json"
+        url = FIREBASE_BASE + "/sos.json"
         with urllib.request.urlopen(url) as response:
             data = response.read().decode('utf-8')
             return data, 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/data', methods=['GET'])
+def get_data():
+    try:
+        url = FIREBASE_BASE + ".json"
+        with urllib.request.urlopen(url) as response:
+            data = response.read().decode('utf-8')
+            return data, 200, {'Content-Type': 'application/json'}
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/', methods=['GET'])
 def home():
-    return jsonify({"status": "Track Child Server running"}), 200
+    return render_template('index.html')
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
